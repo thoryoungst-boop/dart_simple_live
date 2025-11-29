@@ -1,4 +1,4 @@
-name: Build iOS Only (Fix)
+name: Build iOS Only (Fix Intl)
 
 on:
   workflow_dispatch:
@@ -19,13 +19,13 @@ jobs:
         with:
           submodules: recursive
 
-      # 2. 配置 Java (最新版 Gradle 需要)
+      # 2. 配置 Java
       - uses: actions/setup-java@v4
         with:
           distribution: "zulu"
           java-version: "17"
 
-      # 3. 配置 Flutter (升级到 3.24.x)
+      # 3. 配置 Flutter (3.24.5 是目前比较稳定的版本)
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -33,34 +33,39 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # 4. 清理旧缓存 & 安装依赖 (增加详细日志)
+      # 4. 安装依赖 (关键修改点！)
       - name: Install Dependencies
         run: |
           cd simple_live_app
-          # 清理缓存，防止奇怪的报错
           flutter clean
+          
+          # =======================================================
+          # 核心修复：强行将 intl 降级到 0.19.0 以解决版本冲突
+          # =======================================================
+          flutter pub add intl:0.19.0
+          
+          # 正常安装其他依赖
           flutter pub get
-          # 生成代码 (如果有报错，强制继续)
+          
+          # 生成代码
           dart run build_runner build --delete-conflicting-outputs || true
 
-      # 5. 安装 iOS 依赖 (修复常见 Pod 问题)
+      # 5. 安装 iOS 依赖
       - name: Install CocoaPods
         run: |
           cd simple_live_app/ios
-          # 清理 Pod 缓存
           rm -rf Pods
           rm -rf Podfile.lock
-          # 重新安装
           pod install --repo-update
 
-      # 6. 编译 iOS (免签名模式)
+      # 6. 编译 iOS (免签名)
       - name: Build IPA (No CodeSign)
         run: |
           cd simple_live_app
-          # 编译 Release 包
+          # 编译
           flutter build ios --release --no-codesign --verbose
           
-          # 手动制作 IPA
+          # 打包
           mkdir Payload
           mv build/ios/iphoneos/Runner.app Payload/
           zip -q -r simple_live_unsigned.ipa Payload
