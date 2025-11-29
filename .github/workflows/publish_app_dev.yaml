@@ -1,4 +1,4 @@
-name: Build iOS Only (Fix Intl)
+name: Build iOS Only (SDK Update)
 
 on:
   workflow_dispatch:
@@ -7,6 +7,7 @@ on:
       - master
       - main
       - dev
+      - 'v*'
 
 jobs:
   build-ios:
@@ -25,47 +26,46 @@ jobs:
           distribution: "zulu"
           java-version: "17"
 
-      # 3. 配置 Flutter (3.24.5 是目前比较稳定的版本)
+      # 3. 配置 Flutter (升级到 3.27.1 以支持 Dart 3.6+)
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.24.5" 
+          flutter-version: "3.27.1" 
           channel: 'stable'
           cache: true
 
-      # 4. 安装依赖 (关键修改点！)
+      # 4. 安装依赖 (恢复正常流程，依靠新版 SDK 解决冲突)
       - name: Install Dependencies
         run: |
           cd simple_live_app
+          
+          # 清理缓存，避免旧版 SDK 的残留干扰
           flutter clean
           
-          # =======================================================
-          # 核心修复：强行将 intl 降级到 0.19.0 以解决版本冲突
-          # =======================================================
-          flutter pub add intl:0.19.0
-          
-          # 正常安装其他依赖
+          # 获取依赖
           flutter pub get
           
-          # 生成代码
+          # 生成代码 (如果报错则强制继续)
           dart run build_runner build --delete-conflicting-outputs || true
 
       # 5. 安装 iOS 依赖
       - name: Install CocoaPods
         run: |
           cd simple_live_app/ios
+          # 清理 Pod 缓存
           rm -rf Pods
           rm -rf Podfile.lock
+          # 重新安装
           pod install --repo-update
 
       # 6. 编译 iOS (免签名)
       - name: Build IPA (No CodeSign)
         run: |
           cd simple_live_app
-          # 编译
+          # 编译 Release 包
           flutter build ios --release --no-codesign --verbose
           
-          # 打包
+          # 手动制作 IPA
           mkdir Payload
           mv build/ios/iphoneos/Runner.app Payload/
           zip -q -r simple_live_unsigned.ipa Payload
