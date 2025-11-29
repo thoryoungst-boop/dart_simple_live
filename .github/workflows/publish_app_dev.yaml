@@ -1,39 +1,57 @@
-  # 打包不签名的 iOS 版本
+name: app-build-action-dev
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "dev_v*"
+
+jobs:
+  # 打包Android、iOS、Mac
+  build-mac-ios-android:
+    ...
+    # 这里是你原来的代码，不动
+
+  # 打包Linux
+  build-linux:
+    ...
+    # 这里是你原来的代码，不动
+
+  # 打包Windows
+  build-windows:
+    ...
+    # 这里是你原来的代码，不动
+
+  # 打包不签名的 iOS 版本（新增）
   build-ios-nosign:
     runs-on: macos-latest
     permissions:
       contents: write
 
     steps:
-      # 签出代码
       - uses: actions/checkout@v4
         with:
           ref: dev
 
-      # 设置Flutter
       - name: Flutter action
         uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.38.x"
           cache: true
 
-      # 打开 iOS 支持
       - name: Enable Flutter iOS
         run: flutter config --enable-ios
 
-      # 更新 packages
       - name: Restore packages
         run: |
           cd simple_live_app
           flutter pub get
 
-      # 构建未签名 iOS
       - name: Build iOS (No Codesign)
         run: |
           cd simple_live_app
           flutter build ios --release --no-codesign
 
-      # 创建未签名 ipa
       - name: Create Unsigned IPA
         run: |
           cd simple_live_app
@@ -43,7 +61,6 @@
           zip -q -r ios_no_sign.ipa Payload
           cd ../../..
 
-      # 上传 IPA
       - name: Upload Unsigned IPA
         uses: actions/upload-artifact@v4
         with:
@@ -51,5 +68,4 @@
           path: |
             simple_live_app/build/ios/iphoneos/ios_no_sign.ipa
 
-      # 完成
       - run: echo "🍏 iOS no-sign job's status is ${{ job.status }}."
