@@ -1,88 +1,81 @@
-name: Build iOS Final Fix v2
+name: Build iOS Only
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 允许手动点击运行
   push:
     branches:
-      - master
-      - main
-      - dev
-      - 'v*'
+      - "**" # 允许所有分支触发
+    tags:
+      - "v*"
 
 jobs:
   build-ios:
     runs-on: macos-latest
-    timeout-minutes: 60
     
     steps:
-      # 1. 下载代码
+      # 1. 签出代码 (去掉了 ref: dev，防止报错)
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # 2. 配置 Java环境
+      # 2. 设置JAVA环境 (保留原配置)
       - uses: actions/setup-java@v4
         with:
           distribution: "zulu"
           java-version: "17"
 
-      # 3. 配置 Flutter (保持最新版 3.27.1)
+      # 3. 设置Flutter (修正为 3.27.1 以解决 url_launcher 报错)
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.27.1" 
+          flutter-version: "3.27.1"
           channel: 'stable'
           cache: true
 
-      # 4. 安装依赖 (关键步骤：连续降级大法)
-      - name: Install Dependencies
+      # 4. 核心步骤：解决依赖冲突 & 生成代码
+      # (这里必须修改，否则虽然代码少，但跑不通)
+      - name: Fix Dependencies & Restore
         run: |
           cd simple_live_app
-          
-          # 清理缓存
           flutter clean
           
-          # =======================================================
-          # 【核心修复区】
-          # 既然依赖冲突，我们就手动指定一个肯定能用的旧版本
-          # =======================================================
-          
-          # 1. 修复 intl 冲突
+          # 强制解决版本冲突 (intl 和 lottie)
           flutter pub add intl:0.19.0
-          
-          # 2. 修复 lottie 冲突 (降级到 3.1.0，这个版本非常稳定)
           flutter pub add lottie:3.1.0
           
-          # 3. 正常安装其他依赖
+          # 安装依赖
           flutter pub get
           
-          # 生成代码 (如果报错强制继续)
-          dart run build_runner build --delete-conflicting-outputs || true
+          # 生成 .g.dart 文件 (必须步骤)
+          dart run build_runner build --delete-conflicting-outputs
 
-      # 5. 安装 iOS Pods
+      # 5. 安装 iOS 专用依赖 (CocoaPods)
       - name: Install CocoaPods
         run: |
           cd simple_live_app/ios
-          rm -rf Pods
-          rm -rf Podfile.lock
+          rm -rf Pods Podfile.lock
           pod install --repo-update
 
-      # 6. 编译 iOS (免签名)
+      # 6. 打包免签名 IPA
       - name: Build IPA (No CodeSign)
         run: |
           cd simple_live_app
-          # 编译 Release 包
-          flutter build ios --release --no-codesign --verbose
+          # 编译 Release 包 (禁用签名)
+          flutter build ios --release --no-codesign
           
-          # 打包 IPA
-          mkdir Payload
-          mv build/ios/iphoneos/Runner.app Payload/
-          zip -q -r simple_live_unsigned.ipa Payload
+          # 手动打包成 IPA 结构 (保留了你原来的逻辑)
+          mkdir -p build/ios/iphoneos/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/
+          cd build/ios/iphoneos/
+          zip -q -r ios_no_sign.ipa Payload
 
-      # 7. 上传结果
-      - name: Upload IPA
+      # 7. 上传 IPA 至 Artifacts
+      - name: Upload IPA to Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ios-ipa
-          path: simple_live_app/simple_live_unsigned.ipa
-          retention-days: 5
+          name: ios-unsigned
+          path: simple_live_app/build/ios/iphoneos/ios_no_sign.ipa
+          retention-days: 3
+
+      # 完成
+      - run: echo "🍏 iOS Build Finished."
