@@ -44,18 +44,6 @@ jobs:
       - name: Install flutter_distributor
         run: dart pub global activate flutter_distributor
 
-      # Android unsigned APK
-      - name: Build APK
-        run: |
-          cd simple_live_app
-          flutter build apk --release --split-per-abi --no-shrink
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: android
-          path: simple_live_app/build/app/outputs/flutter-apk/app-*-release.apk
-
       # iOS unsigned IPA
       - name: Build IPA
         run: |
@@ -84,7 +72,7 @@ jobs:
           name: mac
           path: simple_live_app/build/dist/*/*.{dmg,zip}
 
-      - run: echo "🍏 Mac/iOS/Android done"
+      - run: echo "🍏 Mac/iOS done"
 
   build-linux:
     runs-on: ubuntu-22.04
