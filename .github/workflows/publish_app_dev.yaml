@@ -1,4 +1,4 @@
-name: Build iOS Only (SDK Update)
+name: Build iOS Final Fix
 
 on:
   workflow_dispatch:
@@ -20,13 +20,13 @@ jobs:
         with:
           submodules: recursive
 
-      # 2. 配置 Java
+      # 2. 配置 Java环境
       - uses: actions/setup-java@v4
         with:
           distribution: "zulu"
           java-version: "17"
 
-      # 3. 配置 Flutter (升级到 3.27.1 以支持 Dart 3.6+)
+      # 3. 配置 Flutter (保持最新版 3.27.1)
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -34,28 +34,30 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # 4. 安装依赖 (恢复正常流程，依靠新版 SDK 解决冲突)
+      # 4. 安装依赖 (关键：先强行降级 intl，再安装其他)
       - name: Install Dependencies
         run: |
           cd simple_live_app
           
-          # 清理缓存，避免旧版 SDK 的残留干扰
+          # 清理缓存
           flutter clean
           
-          # 获取依赖
+          # 【核心修复步骤】
+          # 强行修改 pubspec.yaml，把 intl 锁定在 0.19.0，让它和 Flutter SDK 兼容
+          flutter pub add intl:0.19.0
+          
+          # 再次尝试获取依赖 (这次应该能通过了)
           flutter pub get
           
-          # 生成代码 (如果报错则强制继续)
+          # 生成代码 (如果报错强制继续，防止卡住)
           dart run build_runner build --delete-conflicting-outputs || true
 
-      # 5. 安装 iOS 依赖
+      # 5. 安装 iOS Pods
       - name: Install CocoaPods
         run: |
           cd simple_live_app/ios
-          # 清理 Pod 缓存
           rm -rf Pods
           rm -rf Podfile.lock
-          # 重新安装
           pod install --repo-update
 
       # 6. 编译 iOS (免签名)
@@ -65,12 +67,12 @@ jobs:
           # 编译 Release 包
           flutter build ios --release --no-codesign --verbose
           
-          # 手动制作 IPA
+          # 打包 IPA
           mkdir Payload
           mv build/ios/iphoneos/Runner.app Payload/
           zip -q -r simple_live_unsigned.ipa Payload
 
-      # 7. 上传
+      # 7. 上传结果
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
