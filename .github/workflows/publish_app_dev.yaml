@@ -1,10 +1,10 @@
-name: Build iOS Only
+name: Build iOS Only (Force Fix)
 
 on:
-  workflow_dispatch: # 允许手动点击运行
+  workflow_dispatch:
   push:
     branches:
-      - "**" # 允许所有分支触发
+      - "**"
     tags:
       - "v*"
 
@@ -13,18 +13,18 @@ jobs:
     runs-on: macos-latest
     
     steps:
-      # 1. 签出代码 (去掉了 ref: dev，防止报错)
+      # 1. 签出代码
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # 2. 设置JAVA环境 (保留原配置)
+      # 2. 设置 Java
       - uses: actions/setup-java@v4
         with:
           distribution: "zulu"
           java-version: "17"
 
-      # 3. 设置Flutter (修正为 3.27.1 以解决 url_launcher 报错)
+      # 3. 设置 Flutter (3.27.1)
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -32,44 +32,53 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # 4. 核心步骤：解决依赖冲突 & 生成代码
-      # (这里必须修改，否则虽然代码少，但跑不通)
-      - name: Fix Dependencies & Restore
+      # 4. 暴力修复依赖 & 生成代码
+      # 使用 sed 命令直接修改文本文件，绕过 Flutter 的版本检查
+      - name: Force Fix Dependencies
         run: |
           cd simple_live_app
-          flutter clean
           
-          # 强制解决版本冲突 (intl 和 lottie)
+          # 清理缓存
+          flutter clean
+          rm -f pubspec.lock
+          
+          # 【关键修改】
+          # 使用 sed 强行删除 pubspec.yaml 中现有的 intl 和 lottie 配置行
+          # 这样可以防止 pub add 运行时因为旧版本冲突而报错
+          sed -i '' '/intl:/d' pubspec.yaml
+          sed -i '' '/lottie:/d' pubspec.yaml
+          
+          # 现在文件里已经没有这两个库了，我们可以干净地添加指定版本
           flutter pub add intl:0.19.0
           flutter pub add lottie:3.1.0
           
-          # 安装依赖
+          # 安装剩余依赖
           flutter pub get
           
-          # 生成 .g.dart 文件 (必须步骤)
+          # 生成代码
           dart run build_runner build --delete-conflicting-outputs
 
-      # 5. 安装 iOS 专用依赖 (CocoaPods)
+      # 5. 安装 iOS Pods
       - name: Install CocoaPods
         run: |
           cd simple_live_app/ios
           rm -rf Pods Podfile.lock
           pod install --repo-update
 
-      # 6. 打包免签名 IPA
+      # 6. 编译 iOS (免签名)
       - name: Build IPA (No CodeSign)
         run: |
           cd simple_live_app
-          # 编译 Release 包 (禁用签名)
+          # 编译
           flutter build ios --release --no-codesign
           
-          # 手动打包成 IPA 结构 (保留了你原来的逻辑)
+          # 打包
           mkdir -p build/ios/iphoneos/Payload
           cp -R build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/
           cd build/ios/iphoneos/
           zip -q -r ios_no_sign.ipa Payload
 
-      # 7. 上传 IPA 至 Artifacts
+      # 7. 上传
       - name: Upload IPA to Artifacts
         uses: actions/upload-artifact@v4
         with:
