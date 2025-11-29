@@ -9,21 +9,6 @@ on:
 jobs:
   # 打包Android、iOS、Mac
   build-mac-ios-android:
-    ...
-    # 这里是你原来的代码，不动
-
-  # 打包Linux
-  build-linux:
-    ...
-    # 这里是你原来的代码，不动
-
-  # 打包Windows
-  build-windows:
-    ...
-    # 这里是你原来的代码，不动
-
-  # 打包不签名的 iOS 版本（新增）
-  build-ios-nosign:
     runs-on: macos-latest
     permissions:
       contents: write
@@ -33,26 +18,66 @@ jobs:
         with:
           ref: dev
 
+      - name: Download Android keystore
+        id: android_keystore
+        uses: timheuer/base64-to-file@v1.2
+        with:
+          fileName: keystore.jks
+          encodedString: ${{ secrets.KEYSTORE_BASE64 }}
+
+      - name: Create key.properties
+        run: |
+          echo "storeFile=${{ steps.android_keystore.outputs.filePath }}" > simple_live_app/android/key.properties
+          echo "storePassword=${{ secrets.STORE_PASSWORD }}" >> simple_live_app/android/key.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> simple_live_app/android/key.properties
+          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> simple_live_app/android/key.properties
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "zulu"
+          java-version: "17"
+          cache: "gradle"
+
       - name: Flutter action
         uses: subosito/flutter-action@v2
         with:
           flutter-version: "3.38.x"
           cache: true
 
-      - name: Enable Flutter iOS
-        run: flutter config --enable-ios
+      - name: Enable Flutter Desktop
+        run: flutter config --enable-macos-desktop
 
       - name: Restore packages
         run: |
           cd simple_live_app
           flutter pub get
 
-      - name: Build iOS (No Codesign)
+      - name: Install appdmg
+        run: npm install -g appdmg
+
+      - name: Install flutter_distributor
+        run: dart pub global activate flutter_distributor
+
+      - name: Build APK
+        run: |
+          cd simple_live_app
+          flutter build apk --release --split-per-abi
+
+      - name: Upload APK to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: |
+            simple_live_app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
+            simple_live_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+            simple_live_app/build/app/outputs/flutter-apk/app-x86_64-release.apk
+
+      - name: Build IPA
         run: |
           cd simple_live_app
           flutter build ios --release --no-codesign
 
-      - name: Create Unsigned IPA
+      - name: Create IPA
         run: |
           cd simple_live_app
           mkdir -p build/ios/iphoneos/Payload
@@ -61,11 +86,86 @@ jobs:
           zip -q -r ios_no_sign.ipa Payload
           cd ../../..
 
-      - name: Upload Unsigned IPA
+      - name: Upload IPA to Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ios_no_sign
-          path: |
-            simple_live_app/build/ios/iphoneos/ios_no_sign.ipa
+          name: ios
+          path: simple_live_app/build/ios/iphoneos/ios_no_sign.ipa
 
-      - run: echo "🍏 iOS no-sign job's status is ${{ job.status }}."
+      - name: Build MacOS
+        run: |
+          cd simple_live_app
+          flutter_distributor package --platform macos --targets dmg,zip --skip-clean
+
+      - name: Upload MacOS to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: |
+            simple_live_app/build/dist/*/*.dmg
+            simple_live_app/build/dist/*/*.zip
+
+      - run: echo "🍏 This job's status is ${{ job.status }}."
+
+  # 打包Linux
+  build-linux:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.38.x"
+          cache: true
+
+      - name: Update apt-get
+        run: sudo apt-get update
+
+      - name: Install Dependencies
+        run: sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libasound2-dev libmpv-dev mpv
+
+      - name: Enable Flutter Desktop
+        run: flutter config --enable-linux-desktop
+
+      - name: Restore Packages
+        run: |
+          cd simple_live_app
+          flutter pub get
+
+      - name: Install flutter_distributor
+        run: dart pub global activate flutter_distributor
+
+      - name: Build Linux
+        run: |
+          cd simple_live_app
+          flutter_distributor package --platform linux --targets deb,zip --skip-clean
+
+      - name: Upload Linux APP to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            simple_live_app/build/dist/*/*.deb
+            simple_live_app/build/dist/*/*.zip
+
+      - run: echo "🍏 Linux job's status is ${{ job.status }}."
+
+  # 打包Windows
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action
