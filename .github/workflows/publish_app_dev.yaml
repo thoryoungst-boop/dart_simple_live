@@ -1,4 +1,4 @@
-name: Build iOS Final Fix
+name: Build iOS Final Fix v2
 
 on:
   workflow_dispatch:
@@ -34,7 +34,7 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # 4. 安装依赖 (关键：先强行降级 intl，再安装其他)
+      # 4. 安装依赖 (关键步骤：连续降级大法)
       - name: Install Dependencies
         run: |
           cd simple_live_app
@@ -42,14 +42,21 @@ jobs:
           # 清理缓存
           flutter clean
           
-          # 【核心修复步骤】
-          # 强行修改 pubspec.yaml，把 intl 锁定在 0.19.0，让它和 Flutter SDK 兼容
+          # =======================================================
+          # 【核心修复区】
+          # 既然依赖冲突，我们就手动指定一个肯定能用的旧版本
+          # =======================================================
+          
+          # 1. 修复 intl 冲突
           flutter pub add intl:0.19.0
           
-          # 再次尝试获取依赖 (这次应该能通过了)
+          # 2. 修复 lottie 冲突 (降级到 3.1.0，这个版本非常稳定)
+          flutter pub add lottie:3.1.0
+          
+          # 3. 正常安装其他依赖
           flutter pub get
           
-          # 生成代码 (如果报错强制继续，防止卡住)
+          # 生成代码 (如果报错强制继续)
           dart run build_runner build --delete-conflicting-outputs || true
 
       # 5. 安装 iOS Pods
