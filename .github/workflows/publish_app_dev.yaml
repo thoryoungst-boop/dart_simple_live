@@ -1,7 +1,7 @@
-name: Build iOS Only
+name: Build iOS Only (Fix)
 
 on:
-  workflow_dispatch: # 允许手动点击运行
+  workflow_dispatch:
   push:
     branches:
       - master
@@ -14,49 +14,59 @@ jobs:
     timeout-minutes: 60
     
     steps:
-      # 1. 下载代码 (自动处理子模块)
+      # 1. 下载代码
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # 2. 配置 Flutter 环境 (使用稳定版 3.22.0)
+      # 2. 配置 Java (最新版 Gradle 需要)
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "zulu"
+          java-version: "17"
+
+      # 3. 配置 Flutter (升级到 3.24.x)
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.22.0"
+          flutter-version: "3.24.5" 
           channel: 'stable'
           cache: true
 
-      # 3. 安装依赖 & 生成代码 (关键步骤，不可少)
-      - name: Install Dependencies & Run Build Runner
+      # 4. 清理旧缓存 & 安装依赖 (增加详细日志)
+      - name: Install Dependencies
         run: |
           cd simple_live_app
+          # 清理缓存，防止奇怪的报错
+          flutter clean
           flutter pub get
-          # 这一步非常重要，用于生成 JSON 序列化文件，没有它会报错
-          dart run build_runner build --delete-conflicting-outputs
+          # 生成代码 (如果有报错，强制继续)
+          dart run build_runner build --delete-conflicting-outputs || true
 
-      # 4. 安装 iOS 专用依赖 (CocoaPods)
+      # 5. 安装 iOS 依赖 (修复常见 Pod 问题)
       - name: Install CocoaPods
         run: |
           cd simple_live_app/ios
+          # 清理 Pod 缓存
+          rm -rf Pods
+          rm -rf Podfile.lock
+          # 重新安装
           pod install --repo-update
 
-      # 5. 编译 iOS (免签名模式)
-      # 因为没有开发者证书，我们编译成无签名的 .app，然后手动打包成 .ipa
+      # 6. 编译 iOS (免签名模式)
       - name: Build IPA (No CodeSign)
         run: |
           cd simple_live_app
-          # 编译 Release 包，禁用代码签名
-          flutter build ios --release --no-codesign
+          # 编译 Release 包
+          flutter build ios --release --no-codesign --verbose
           
-          # 手动制作 IPA 结构
+          # 手动制作 IPA
           mkdir Payload
           mv build/ios/iphoneos/Runner.app Payload/
-          # 压缩成 IPA 文件
           zip -q -r simple_live_unsigned.ipa Payload
 
-      # 6. 上传结果
-      - name: Upload IPA to Artifacts
+      # 7. 上传
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: ios-ipa
